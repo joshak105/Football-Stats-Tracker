@@ -29,9 +29,6 @@ What I Learned
 Managing asynchronous state, loading and
 error handling cleanly
 
-Configuring a local Node.js/npm
-environment and resolving install/build
-issues to get to a working deployment
 
 Taking a project from idea through to a live,
 deployed build
