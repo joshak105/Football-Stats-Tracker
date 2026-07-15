@@ -25,8 +25,6 @@ and error states handled gracefully
 
 What I Learned
 
-Consuming and structuring data from a
-third-party REST API in React
 
 Managing asynchronous state, loading and
 error handling cleanly
