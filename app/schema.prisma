@@ -1,0 +1,668 @@
+// prisma/schema.prisma
+// ─────────────────────────────────────────────────────────────
+// Football Stats Tracker — Prisma Schema
+//
+// Maps 1-to-1 with schema.sql. Every table, enum, index, and
+// relation is represented here so Prisma Client gives you full
+// type-safe access to the database.
+//
+// Setup:
+//   1. Add DATABASE_URL to .env
+//   2. npx prisma generate          ← generates the client
+//   3. npx prisma db push           ← pushes schema to existing DB
+//      OR
+//      npx prisma migrate dev       ← creates a migration file
+//
+// After any change to this file, re-run `npx prisma generate`.
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────
+
+enum MatchStatus {
+  scheduled
+  live
+  half_time
+  finished
+  postponed
+  cancelled
+  abandoned
+
+  @@map("match_status")
+}
+
+enum PlayerPosition {
+  goalkeeper
+  defender
+  midfielder
+  forward
+
+  @@map("player_position")
+}
+
+enum EventType {
+  goal
+  own_goal
+  penalty_scored
+  penalty_missed
+  yellow_card
+  red_card
+  yellow_red_card
+  substitution_in
+  substitution_out
+  var_decision
+
+  @@map("event_type")
+}
+
+enum StandingGroup {
+  overall
+  home
+  away
+
+  @@map("standing_group")
+}
+
+// ─────────────────────────────────────────────────────────────
+// COUNTRIES
+// ─────────────────────────────────────────────────────────────
+
+model Country {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(100)
+  code      String   @unique @db.Char(3)
+  flagUrl   String?  @map("flag_url")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  competitions  Competition[]
+  venues        Venue[]
+  teams         Team[]
+  players       Player[]      @relation("PlayerNationality")
+
+  @@index([code])
+  @@map("countries")
+}
+
+// ─────────────────────────────────────────────────────────────
+// COMPETITIONS
+// ─────────────────────────────────────────────────────────────
+
+model Competition {
+  id         Int      @id @default(autoincrement())
+  externalId Int?     @unique @map("external_id")
+  name       String   @db.VarChar(150)
+  shortName  String?  @map("short_name") @db.VarChar(50)
+  countryId  Int?     @map("country_id")
+  type       String   @default("league") @db.VarChar(30)
+  logoUrl    String?  @map("logo_url")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  country  Country?  @relation(fields: [countryId], references: [id])
+  seasons  Season[]
+
+  @@index([countryId])
+  @@index([isActive])
+  @@map("competitions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SEASONS
+// ─────────────────────────────────────────────────────────────
+
+model Season {
+  id            Int      @id @default(autoincrement())
+  competitionId Int      @map("competition_id")
+  externalId    Int?     @map("external_id")
+  label         String   @db.VarChar(20)           // e.g. "2024/25"
+  yearStart     Int      @map("year_start") @db.SmallInt
+  yearEnd       Int      @map("year_end")   @db.SmallInt
+  isCurrent     Boolean  @default(false) @map("is_current")
+  startDate     DateTime? @map("start_date") @db.Date
+  endDate       DateTime? @map("end_date")   @db.Date
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  competition       Competition        @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  seasonTeams       SeasonTeam[]
+  matches           Match[]
+  standings         Standing[]
+  playerSeasonStats PlayerSeasonStat[]
+
+  @@unique([competitionId, label], name: "competitionId_label")
+  @@index([competitionId])
+  @@map("seasons")
+}
+
+// ─────────────────────────────────────────────────────────────
+// VENUES
+// ─────────────────────────────────────────────────────────────
+
+model Venue {
+  id         Int      @id @default(autoincrement())
+  externalId Int?     @unique @map("external_id")
+  name       String   @db.VarChar(150)
+  city       String?  @db.VarChar(100)
+  countryId  Int?     @map("country_id")
+  capacity   Int?
+  latitude   Decimal? @db.Decimal(9, 6)
+  longitude  Decimal? @db.Decimal(9, 6)
+  imageUrl   String?  @map("image_url")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  country Country? @relation(fields: [countryId], references: [id])
+  teams   Team[]
+  matches Match[]
+
+  @@map("venues")
+}
+
+// ─────────────────────────────────────────────────────────────
+// TEAMS
+// ─────────────────────────────────────────────────────────────
+
+model Team {
+  id           Int      @id @default(autoincrement())
+  externalId   Int?     @unique @map("external_id")
+  name         String   @db.VarChar(150)
+  shortName    String?  @map("short_name") @db.VarChar(50)
+  tla          String?  @db.Char(3)
+  countryId    Int?     @map("country_id")
+  venueId      Int?     @map("venue_id")
+  logoUrl      String?  @map("logo_url")
+  foundedYear  Int?     @map("founded_year") @db.SmallInt
+  website      String?
+  isNational   Boolean  @default(false) @map("is_national")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  country           Country?           @relation(fields: [countryId], references: [id])
+  venue             Venue?             @relation(fields: [venueId], references: [id])
+  seasonTeams       SeasonTeam[]
+  playerTeams       PlayerTeam[]
+  homeMatches       Match[]            @relation("HomeTeam")
+  awayMatches       Match[]            @relation("AwayTeam")
+  matchTeamStats    MatchTeamStat[]
+  matchEvents       MatchEvent[]
+  matchLineups      MatchLineup[]
+  playerMatchStats  PlayerMatchStat[]
+  standings         Standing[]
+  playerSeasonStats PlayerSeasonStat[]
+
+  @@index([countryId])
+  @@index([tla])
+  @@map("teams")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SEASON ↔ TEAM (join table)
+// ─────────────────────────────────────────────────────────────
+
+model SeasonTeam {
+  seasonId Int @map("season_id")
+  teamId   Int @map("team_id")
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  team   Team   @relation(fields: [teamId],   references: [id], onDelete: Cascade)
+
+  @@id([seasonId, teamId])
+  @@map("season_teams")
+}
+
+// ─────────────────────────────────────────────────────────────
+// PLAYERS
+// ─────────────────────────────────────────────────────────────
+
+model Player {
+  id            Int             @id @default(autoincrement())
+  externalId    Int?            @unique @map("external_id")
+  name          String          @db.VarChar(150)
+  firstName     String?         @map("first_name") @db.VarChar(100)
+  lastName      String?         @map("last_name")  @db.VarChar(100)
+  dateOfBirth   DateTime?       @map("date_of_birth") @db.Date
+  nationalityId Int?            @map("nationality_id")
+  position      PlayerPosition?
+  shirtNumber   Int?            @map("shirt_number") @db.SmallInt
+  heightCm      Int?            @map("height_cm") @db.SmallInt
+  weightKg      Int?            @map("weight_kg") @db.SmallInt
+  photoUrl      String?         @map("photo_url")
+  isActive      Boolean         @default(true) @map("is_active")
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  nationality          Country?           @relation("PlayerNationality", fields: [nationalityId], references: [id])
+  playerTeams          PlayerTeam[]
+  playerMatchStats     PlayerMatchStat[]
+  playerSeasonStats    PlayerSeasonStat[]
+  eventsAsPlayer       MatchEvent[]       @relation("EventPlayer")
+  eventsAsRelated      MatchEvent[]       @relation("EventRelatedPlayer")
+  matchLineups         MatchLineup[]
+
+  @@index([nationalityId])
+  @@index([isActive])
+  @@map("players")
+}
+
+// ─────────────────────────────────────────────────────────────
+// PLAYER ↔ TEAM (squad history / transfers)
+// ─────────────────────────────────────────────────────────────
+
+model PlayerTeam {
+  id           Int       @id @default(autoincrement())
+  playerId     Int       @map("player_id")
+  teamId       Int       @map("team_id")
+  shirtNumber  Int?      @map("shirt_number") @db.SmallInt
+  joinedDate   DateTime? @map("joined_date") @db.Date
+  leftDate     DateTime? @map("left_date")   @db.Date
+  isLoan       Boolean   @default(false) @map("is_loan")
+  isCurrent    Boolean   @default(false) @map("is_current")
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  team   Team   @relation(fields: [teamId],   references: [id], onDelete: Cascade)
+
+  // Note: The SQL schema has UNIQUE NULLS NOT DISTINCT (player_id, is_current)
+  // which ensures only one current team per player. Prisma doesn't support
+  // NULLS NOT DISTINCT directly — enforce this in application logic or via
+  // a partial unique index created in schema.sql.
+  @@unique([playerId, teamId], name: "playerId_teamId")
+  @@index([playerId])
+  @@index([teamId])
+  @@map("player_teams")
+}
+
+// ─────────────────────────────────────────────────────────────
+// MATCHES
+// ─────────────────────────────────────────────────────────────
+
+model Match {
+  id             Int          @id @default(autoincrement())
+  externalId     Int?         @unique @map("external_id")
+  seasonId       Int          @map("season_id")
+  homeTeamId     Int          @map("home_team_id")
+  awayTeamId     Int          @map("away_team_id")
+  venueId        Int?         @map("venue_id")
+  kickoffAt      DateTime     @map("kickoff_at") @db.Timestamptz()
+  status         MatchStatus  @default(scheduled)
+  matchweek      Int?         @db.SmallInt
+  homeScore      Int?         @map("home_score") @db.SmallInt
+  awayScore      Int?         @map("away_score") @db.SmallInt
+  homeScoreHt    Int?         @map("home_score_ht") @db.SmallInt
+  awayScoreHt    Int?         @map("away_score_ht") @db.SmallInt
+  homeScoreEt    Int?         @map("home_score_et") @db.SmallInt
+  awayScoreEt    Int?         @map("away_score_et") @db.SmallInt
+  homeScorePen   Int?         @map("home_score_pen") @db.SmallInt
+  awayScorePen   Int?         @map("away_score_pen") @db.SmallInt
+  attendance     Int?
+  referee        String?      @db.VarChar(100)
+  minute         Int?         @db.SmallInt
+  rawApiPayload  Json?        @map("raw_api_payload")
+  lastSyncedAt   DateTime?    @map("last_synced_at") @db.Timestamptz()
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  season           Season            @relation(fields: [seasonId],   references: [id], onDelete: Cascade)
+  homeTeam         Team              @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam         Team              @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  venue            Venue?            @relation(fields: [venueId],    references: [id])
+  events           MatchEvent[]
+  teamStats        MatchTeamStat[]
+  lineups          MatchLineup[]
+  playerMatchStats PlayerMatchStat[]
+
+  @@index([seasonId])
+  @@index([homeTeamId])
+  @@index([awayTeamId])
+  @@index([kickoffAt])
+  @@index([status])
+  @@map("matches")
+}
+
+// ─────────────────────────────────────────────────────────────
+// MATCH TEAM STATS (one row per team per match)
+// ─────────────────────────────────────────────────────────────
+
+model MatchTeamStat {
+  id                    Int      @id @default(autoincrement())
+  matchId               Int      @map("match_id")
+  teamId                Int      @map("team_id")
+
+  possessionPct         Decimal? @map("possession_pct") @db.Decimal(4, 1)
+  passes                Int?     @db.SmallInt
+  passesAccurate        Int?     @map("passes_accurate") @db.SmallInt
+  passAccuracyPct       Decimal? @map("pass_accuracy_pct") @db.Decimal(4, 1)
+  passesProgressive     Int?     @map("passes_progressive") @db.SmallInt
+  passesIntoFinalThird  Int?     @map("passes_into_final_third") @db.SmallInt
+  shots                 Int?     @db.SmallInt
+  shotsOnTarget         Int?     @map("shots_on_target") @db.SmallInt
+  shotsOffTarget        Int?     @map("shots_off_target") @db.SmallInt
+  shotsBlocked          Int?     @map("shots_blocked") @db.SmallInt
+  xg                    Decimal? @db.Decimal(5, 2)
+  xgOnTarget            Decimal? @map("xg_on_target") @db.Decimal(5, 2)
+  tackles               Int?     @db.SmallInt
+  tacklesWon            Int?     @map("tackles_won") @db.SmallInt
+  interceptions         Int?     @db.SmallInt
+  blocks                Int?     @db.SmallInt
+  clearances            Int?     @db.SmallInt
+  errorsLeadingToShot   Int?     @map("errors_leading_to_shot") @db.SmallInt
+  duelsTotal            Int?     @map("duels_total") @db.SmallInt
+  duelsWon              Int?     @map("duels_won") @db.SmallInt
+  aerialDuelsWon        Int?     @map("aerial_duels_won") @db.SmallInt
+  corners               Int?     @db.SmallInt
+  foulsCommitted        Int?     @map("fouls_committed") @db.SmallInt
+  foulsDrawn            Int?     @map("fouls_drawn") @db.SmallInt
+  offsides              Int?     @db.SmallInt
+  yellowCards           Int?     @map("yellow_cards") @db.SmallInt
+  redCards              Int?     @map("red_cards") @db.SmallInt
+  saves                 Int?     @db.SmallInt
+  savePct               Decimal? @map("save_pct") @db.Decimal(4, 1)
+  pressures             Int?     @db.SmallInt
+  pressureSuccessRate   Decimal? @map("pressure_success_rate") @db.Decimal(4, 1)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team  Team  @relation(fields: [teamId],  references: [id])
+
+  @@unique([matchId, teamId], name: "matchId_teamId")
+  @@index([matchId])
+  @@index([teamId])
+  @@map("match_team_stats")
+}
+
+// ─────────────────────────────────────────────────────────────
+// MATCH EVENTS (goals, cards, subs)
+// ─────────────────────────────────────────────────────────────
+
+model MatchEvent {
+  id              Int        @id @default(autoincrement())
+  externalId      Int?       @unique @map("external_id")
+  matchId         Int        @map("match_id")
+  teamId          Int        @map("team_id")
+  playerId        Int?       @map("player_id")
+  relatedPlayerId Int?       @map("related_player_id")
+  eventType       EventType  @map("event_type")
+  minute          Int        @db.SmallInt
+  extraMinute     Int?       @map("extra_minute") @db.SmallInt
+  detail          String?    @db.VarChar(100)
+  comment         String?
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+
+  match         Match   @relation(fields: [matchId],         references: [id], onDelete: Cascade)
+  team          Team    @relation(fields: [teamId],           references: [id])
+  player        Player? @relation("EventPlayer",        fields: [playerId],        references: [id], onDelete: SetNull)
+  relatedPlayer Player? @relation("EventRelatedPlayer", fields: [relatedPlayerId], references: [id], onDelete: SetNull)
+
+  @@index([matchId])
+  @@index([playerId])
+  @@index([eventType])
+  @@map("match_events")
+}
+
+// ─────────────────────────────────────────────────────────────
+// LINEUPS
+// ─────────────────────────────────────────────────────────────
+
+model MatchLineup {
+  id              Int             @id @default(autoincrement())
+  matchId         Int             @map("match_id")
+  teamId          Int             @map("team_id")
+  playerId        Int             @map("player_id")
+  shirtNumber     Int?            @map("shirt_number") @db.SmallInt
+  position        PlayerPosition?
+  gridPosition    String?         @map("grid_position") @db.VarChar(10)
+  isStarter       Boolean         @default(true)  @map("is_starter")
+  isCaptain       Boolean         @default(false) @map("is_captain")
+  subbedInMinute  Int?            @map("subbed_in_minute")  @db.SmallInt
+  subbedOutMinute Int?            @map("subbed_out_minute") @db.SmallInt
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  match  Match  @relation(fields: [matchId],  references: [id], onDelete: Cascade)
+  team   Team   @relation(fields: [teamId],   references: [id])
+  player Player @relation(fields: [playerId], references: [id])
+
+  @@unique([matchId, teamId, playerId])
+  @@index([matchId])
+  @@index([playerId])
+  @@map("match_lineups")
+}
+
+// ─────────────────────────────────────────────────────────────
+// PLAYER MATCH STATS
+// ─────────────────────────────────────────────────────────────
+
+model PlayerMatchStat {
+  id                  Int      @id @default(autoincrement())
+  matchId             Int      @map("match_id")
+  playerId            Int      @map("player_id")
+  teamId              Int      @map("team_id")
+
+  minutesPlayed       Int      @default(0) @map("minutes_played") @db.SmallInt
+  isStarter           Boolean  @default(false) @map("is_starter")
+
+  goals               Int      @default(0) @db.SmallInt
+  assists             Int      @default(0) @db.SmallInt
+  shots               Int?     @db.SmallInt
+  shotsOnTarget       Int?     @map("shots_on_target") @db.SmallInt
+  xg                  Decimal? @db.Decimal(4, 2)
+  xa                  Decimal? @db.Decimal(4, 2)
+  keyPasses           Int?     @map("key_passes") @db.SmallInt
+  bigChancesCreated   Int?     @map("big_chances_created") @db.SmallInt
+  bigChancesMissed    Int?     @map("big_chances_missed") @db.SmallInt
+
+  passes              Int?     @db.SmallInt
+  passesAccurate      Int?     @map("passes_accurate") @db.SmallInt
+  passAccuracyPct     Decimal? @map("pass_accuracy_pct") @db.Decimal(4, 1)
+  passesProgressive   Int?     @map("passes_progressive") @db.SmallInt
+  crosses             Int?     @db.SmallInt
+  crossesAccurate     Int?     @map("crosses_accurate") @db.SmallInt
+  longBalls           Int?     @map("long_balls") @db.SmallInt
+  longBallsAccurate   Int?     @map("long_balls_accurate") @db.SmallInt
+  throughBalls        Int?     @map("through_balls") @db.SmallInt
+
+  dribblesAttempted   Int?     @map("dribbles_attempted") @db.SmallInt
+  dribblesSucceeded   Int?     @map("dribbles_succeeded") @db.SmallInt
+
+  tackles             Int?     @db.SmallInt
+  tacklesWon          Int?     @map("tackles_won") @db.SmallInt
+  interceptions       Int?     @db.SmallInt
+  blocks              Int?     @db.SmallInt
+  clearances          Int?     @db.SmallInt
+  duelsTotal          Int?     @map("duels_total") @db.SmallInt
+  duelsWon            Int?     @map("duels_won") @db.SmallInt
+  aerialDuelsWon      Int?     @map("aerial_duels_won") @db.SmallInt
+  recoveries          Int?     @db.SmallInt
+
+  foulsCommitted      Int      @default(0) @map("fouls_committed") @db.SmallInt
+  foulsDrawn          Int      @default(0) @map("fouls_drawn") @db.SmallInt
+  yellowCards         Int      @default(0) @map("yellow_cards") @db.SmallInt
+  redCards            Int      @default(0) @map("red_cards") @db.SmallInt
+  offsides            Int      @default(0) @db.SmallInt
+
+  saves               Int?     @db.SmallInt
+  goalsConceded       Int?     @map("goals_conceded") @db.SmallInt
+  cleanSheet          Boolean? @map("clean_sheet")
+  punches             Int?     @db.SmallInt
+  highClaims          Int?     @map("high_claims") @db.SmallInt
+  xgFaced             Decimal? @map("xg_faced") @db.Decimal(4, 2)
+
+  rating              Decimal? @db.Decimal(3, 1)
+
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  match  Match  @relation(fields: [matchId],  references: [id], onDelete: Cascade)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  team   Team   @relation(fields: [teamId],   references: [id])
+
+  @@unique([matchId, playerId])
+  @@index([matchId])
+  @@index([playerId])
+  @@index([teamId])
+  @@map("player_match_stats")
+}
+
+// ─────────────────────────────────────────────────────────────
+// STANDINGS
+// ─────────────────────────────────────────────────────────────
+
+model Standing {
+  id           Int           @id @default(autoincrement())
+  seasonId     Int           @map("season_id")
+  teamId       Int           @map("team_id")
+  groupType    StandingGroup @default(overall) @map("group_type")
+  position     Int           @db.SmallInt
+  played       Int           @default(0) @db.SmallInt
+  won          Int           @default(0) @db.SmallInt
+  drawn        Int           @default(0) @db.SmallInt
+  lost         Int           @default(0) @db.SmallInt
+  goalsFor     Int           @default(0) @map("goals_for") @db.SmallInt
+  goalsAgainst Int           @default(0) @map("goals_against") @db.SmallInt
+  // goal_difference and ppg are GENERATED columns in Postgres —
+  // Prisma reads them but never writes them. Declare as optional.
+  goalDifference Int?        @map("goal_difference") @db.SmallInt
+  points       Int           @default(0) @db.SmallInt
+  form         String?       @db.Char(5)
+  ppg          Decimal?      @db.Decimal(4, 2)
+  updatedAt    DateTime      @default(now()) @map("updated_at") @db.Timestamptz()
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  team   Team   @relation(fields: [teamId],   references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, teamId, groupType], name: "seasonId_teamId_groupType")
+  @@index([seasonId])
+  @@index([teamId])
+  @@index([seasonId, groupType, position])
+  @@map("standings")
+}
+
+// ─────────────────────────────────────────────────────────────
+// PLAYER SEASON STATS (pre-aggregated)
+// ─────────────────────────────────────────────────────────────
+
+model PlayerSeasonStat {
+  id                Int      @id @default(autoincrement())
+  playerId          Int      @map("player_id")
+  seasonId          Int      @map("season_id")
+  teamId            Int      @map("team_id")
+
+  appearances       Int      @default(0) @db.SmallInt
+  starts            Int      @default(0) @db.SmallInt
+  minutesPlayed     Int      @default(0) @map("minutes_played")
+
+  goals             Int      @default(0) @db.SmallInt
+  assists           Int      @default(0) @db.SmallInt
+  shots             Int      @default(0) @db.SmallInt
+  shotsOnTarget     Int      @default(0) @map("shots_on_target") @db.SmallInt
+  xg                Decimal  @default(0) @db.Decimal(6, 2)
+  xa                Decimal  @default(0) @db.Decimal(6, 2)
+  keyPasses         Int      @default(0) @map("key_passes") @db.SmallInt
+  bigChancesCreated Int      @default(0) @map("big_chances_created") @db.SmallInt
+
+  passes            Int      @default(0)
+  passesAccurate    Int      @default(0) @map("passes_accurate")
+  passesProgressive Int?     @map("passes_progressive") @db.SmallInt
+
+  tackles           Int      @default(0) @db.SmallInt
+  tacklesWon        Int      @default(0) @map("tackles_won") @db.SmallInt
+  interceptions     Int      @default(0) @db.SmallInt
+  clearances        Int      @default(0) @db.SmallInt
+  aerialDuelsWon    Int      @default(0) @map("aerial_duels_won") @db.SmallInt
+
+  yellowCards       Int      @default(0) @map("yellow_cards") @db.SmallInt
+  redCards          Int      @default(0) @map("red_cards") @db.SmallInt
+  foulsCommitted    Int      @default(0) @map("fouls_committed") @db.SmallInt
+
+  saves             Int?     @db.SmallInt
+  cleanSheets       Int?     @map("clean_sheets") @db.SmallInt
+  goalsConceded     Int?     @map("goals_conceded") @db.SmallInt
+  xgFaced           Decimal? @map("xg_faced") @db.Decimal(6, 2)
+
+  avgRating         Decimal? @map("avg_rating") @db.Decimal(3, 1)
+
+  // GENERATED columns — Prisma reads these, never writes them
+  goalsPer90        Decimal? @map("goals_per90") @db.Decimal(5, 2)
+  assistsPer90      Decimal? @map("assists_per90") @db.Decimal(5, 2)
+  xgPer90           Decimal? @map("xg_per90") @db.Decimal(5, 2)
+
+  updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  team   Team   @relation(fields: [teamId],   references: [id])
+
+  @@unique([playerId, seasonId, teamId], name: "playerId_seasonId_teamId")
+  @@index([playerId])
+  @@index([seasonId])
+  @@index([teamId])
+  @@index([seasonId, goals(sort: Desc)])
+  @@map("player_season_stats")
+}
+
+// ─────────────────────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id          String   @id @default(uuid()) @db.Uuid
+  email       String   @unique @db.VarChar(255)
+  displayName String?  @map("display_name") @db.VarChar(100)
+  avatarUrl   String?  @map("avatar_url")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  favourites UserFavourite[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────
+// USER FAVOURITES
+// ─────────────────────────────────────────────────────────────
+
+model UserFavourite {
+  id         Int      @id @default(autoincrement())
+  userId     String   @map("user_id") @db.Uuid
+  entityType String   @map("entity_type") @db.VarChar(20)  // 'team' | 'player' | 'competition'
+  entityId   Int      @map("entity_id")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, entityType, entityId])
+  @@index([userId])
+  @@map("user_favourites")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SYNC LOG
+// ─────────────────────────────────────────────────────────────
+
+model SyncLog {
+  id             Int      @id @default(autoincrement())
+  entityType     String   @map("entity_type") @db.VarChar(50)
+  entityId       Int?     @map("entity_id")
+  status         String   @db.VarChar(20)   // 'success' | 'error' | 'partial'
+  recordsFetched Int?     @map("records_fetched")
+  recordsUpdated Int?     @map("records_updated")
+  errorMessage   String?  @map("error_message")
+  durationMs     Int?     @map("duration_ms")
+  syncedAt       DateTime @default(now()) @map("synced_at") @db.Timestamptz()
+
+  @@index([entityType, entityId])
+  @@index([syncedAt(sort: Desc)])
+  @@map("sync_log")
+}
