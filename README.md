@@ -2,7 +2,7 @@
 
 A web app for tracking and visualising football statistics — teams, players, fixtures and league standings — in a clean, responsive interface.
 
-Overview
+Overview 
 
 Football Stats Tracker is a single-page application that pulls live football data and turns it into a fast, readable dashboard. Users can browse league tables, follow individual teams, inspect player statistics and check upcoming fixtures — all in one place, without the clutter of a typical sports site.
 
