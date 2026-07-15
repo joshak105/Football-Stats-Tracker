@@ -1,6 +1,6 @@
 ⚽ Football Stats Tracker
 
-A web app for tracking and visualising football statistics — teams, players, fixtures and league standings — in a clean, responsive interface.
+Currently developing a web app for tracking and visualising football statistics — teams, players, fixtures and league standings — in a clean, responsive interface. This project is stil in its bulding phase.
 
 Overview 
 
